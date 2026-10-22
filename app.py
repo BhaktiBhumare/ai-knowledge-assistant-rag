@@ -5,6 +5,7 @@ import pymupdf
 from chunking import split_text
 from embeddings import load_embedding_model, generate_embeddings
 from vector_search import retrieve_relevant_chunks
+from llm import generate_answer
 
 
 # --------------------------------------------------
@@ -19,8 +20,9 @@ st.set_page_config(
 
 st.title("📚 AI Knowledge Assistant")
 st.write(
-    "Upload a PDF, ask a question, and retrieve relevant information "
-    "from your document."
+    "Upload a PDF and ask questions. "
+    "The assistant retrieves relevant passages and generates answers "
+    "using a language model."
 )
 
 
@@ -87,7 +89,6 @@ if uploaded_file is not None:
             )
 
             st.subheader("Document Information")
-
             st.write(f"**Total chunks:** {len(chunks)}")
 
             with st.expander("View extracted text"):
@@ -129,17 +130,15 @@ if uploaded_file is not None:
 
             question = st.text_input(
                 "Enter your question about the uploaded PDF",
-                placeholder="What is this document about?"
+                placeholder="What is this document about?",
+                key="document_question"
             )
 
-            # Fix: Streamlit slider requires max_value > min_value.
-            # If there is only one chunk, use top_k = 1.
+            # Handle one-chunk documents separately
             if len(chunks) == 1:
                 top_k = 1
-
                 st.caption(
-                    "One chunk is available, so the app will retrieve "
-                    "that chunk."
+                    "One chunk is available, so the app will retrieve it."
                 )
 
             else:
@@ -151,21 +150,19 @@ if uploaded_file is not None:
                 )
 
             # ------------------------------------------
-            # 7. Search for relevant chunks
+            # 7. Retrieve context and generate answer
             # ------------------------------------------
 
-            if st.button("Search Document", type="primary"):
+            if st.button("Get Answer", type="primary"):
 
                 if not question.strip():
 
-                    st.warning(
-                        "Please enter a question before searching."
-                    )
+                    st.warning("Please enter a question first.")
 
                 else:
 
                     with st.spinner(
-                        "Searching for relevant information..."
+                        "Searching the document for relevant information..."
                     ):
 
                         results = retrieve_relevant_chunks(
@@ -176,35 +173,56 @@ if uploaded_file is not None:
                             top_k=top_k
                         )
 
-                    # ----------------------------------
-                    # 8. Display search results
-                    # ----------------------------------
+                    if not results:
 
-                    st.subheader("Retrieved Results")
-
-                    if results:
-
-                        for rank, result in enumerate(
-                            results,
-                            start=1
-                        ):
-
-                            st.markdown(f"### Result {rank}")
-
-                            st.write(
-                                f"**Similarity score:** "
-                                f"{result['score']:.4f}"
-                            )
-
-                            st.write(result["chunk"])
-
-                            st.divider()
+                        st.info(
+                            "No relevant chunks were found in the document."
+                        )
 
                     else:
 
-                        st.info(
-                            "No relevant chunks were found."
+                        # Combine retrieved chunks into context
+                        context = "\n\n".join(
+                            result["chunk"] for result in results
                         )
+
+                        # Generate a natural-language answer using Ollama
+                        with st.spinner(
+                            "Generating an answer with the language model..."
+                        ):
+
+                            answer = generate_answer(
+                                question=question,
+                                context=context
+                            )
+
+                        # ----------------------------------
+                        # 8. Display the generated answer
+                        # ----------------------------------
+
+                        st.subheader("Generated Answer")
+                        st.write(answer)
+
+                        # ----------------------------------
+                        # 9. Display retrieved source passages
+                        # ----------------------------------
+
+                        with st.expander("View retrieved source passages"):
+
+                            for rank, result in enumerate(
+                                results,
+                                start=1
+                            ):
+
+                                st.markdown(f"**Source {rank}**")
+
+                                st.write(
+                                    f"Similarity score: "
+                                    f"{result['score']:.4f}"
+                                )
+
+                                st.write(result["chunk"])
+                                st.divider()
 
     except Exception as error:
 
