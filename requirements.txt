@@ -1,2 +1,6 @@
+
 streamlit
 pymupdf
+sentence-transformers
+numpy
+requests
